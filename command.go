@@ -65,15 +65,15 @@ type Command struct {
 	//   * PersistentPostRun()
 	// All functions get the same args, the arguments after the command name
 	// PersistentPreRun: children of this command will inherit and execute
-	PersistentPreRun func(cmd *Command, args []string)
+	PersistentPreRun func(cmd *Command, args []string) error
 	// PreRun: children of this command will not inherit.
-	PreRun func(cmd *Command, args []string)
+	PreRun func(cmd *Command, args []string) error
 	// Run: Typically the actual work function. Most commands will only implement this
-	Run func(cmd *Command, args []string)
+	Run func(cmd *Command, args []string) error
 	// PostRun: run after the Run command.
-	PostRun func(cmd *Command, args []string)
+	PostRun func(cmd *Command, args []string) error
 	// PersistentPostRun: children of this command will inherit and execute after PostRun
-	PersistentPostRun func(cmd *Command, args []string)
+	PersistentPostRun func(cmd *Command, args []string) error
 	// Commands is the list of commands supported by this program.
 	commands []*Command
 	// Parent Command for this command
@@ -85,13 +85,13 @@ type Command struct {
 
 	flagErrorBuf *bytes.Buffer
 
-	args          []string                 // actual args parsed from flags
-	output        *io.Writer               // nil means stderr; use Out() method instead
-	usageFunc     func(*Command) error     // Usage can be defined by application
-	usageTemplate string                   // Can be defined by Application
-	helpTemplate  string                   // Can be defined by Application
-	helpFunc      func(*Command, []string) // Help can be defined by application
-	helpCommand   *Command                 // The help command
+	args          []string                       // actual args parsed from flags
+	output        *io.Writer                     // nil means stderr; use Out() method instead
+	usageFunc     func(*Command) error           // Usage can be defined by application
+	usageTemplate string                         // Can be defined by Application
+	helpTemplate  string                         // Can be defined by Application
+	helpFunc      func(*Command, []string) error // Help can be defined by application
+	helpCommand   *Command                       // The help command
 	helpFlagVal   bool
 	// The global normalization function that we can use on every pFlag set and children commands
 	globNormFunc func(f *flag.FlagSet, name string) flag.NormalizedName
@@ -140,7 +140,7 @@ func (c *Command) SetUsageTemplate(s string) {
 }
 
 // Can be defined by Application
-func (c *Command) SetHelpFunc(f func(*Command, []string)) {
+func (c *Command) SetHelpFunc(f func(*Command, []string) error) {
 	c.helpFunc = f
 }
 
@@ -179,7 +179,7 @@ func (c *Command) UsageFunc() (f func(*Command) error) {
 		}
 	}
 }
-func (c *Command) HelpFunc() func(*Command, []string) {
+func (c *Command) HelpFunc() func(*Command, []string) error {
 	if c.helpFunc != nil {
 		return c.helpFunc
 	}
@@ -187,11 +187,11 @@ func (c *Command) HelpFunc() func(*Command, []string) {
 	if c.HasParent() {
 		return c.parent.HelpFunc()
 	} else {
-		return func(c *Command, args []string) {
+		return func(c *Command, args []string) error {
 			if len(args) == 0 {
 				// Help called without any topic, calling on root
 				c.Root().Help()
-				return
+				return nil
 			}
 
 			cmd, _, e := c.Root().Find(args)
@@ -205,6 +205,7 @@ func (c *Command) HelpFunc() func(*Command, []string) {
 					c.Println(err)
 				}
 			}
+			return nil
 		}
 	}
 }
@@ -461,26 +462,35 @@ func (c *Command) execute(a []string) (err error) {
 	}
 
 	c.preRun()
+
 	argWoFlags := c.Flags().Args()
 
 	for p := c; p != nil; p = p.Parent() {
 		if p.PersistentPreRun != nil {
-			p.PersistentPreRun(c, argWoFlags)
+			if err = p.PersistentPreRun(c, argWoFlags); err != nil {
+				return err
+			}
 			break
 		}
 	}
 	if c.PreRun != nil {
-		c.PreRun(c, argWoFlags)
+		if err = c.PreRun(c, argWoFlags); err != nil {
+			return err
+		}
 	}
 
 	c.Run(c, argWoFlags)
 
 	if c.PostRun != nil {
-		c.PostRun(c, argWoFlags)
+		if err = c.PostRun(c, argWoFlags); err != nil {
+			return err
+		}
 	}
 	for p := c; p != nil; p = p.Parent() {
 		if p.PersistentPostRun != nil {
-			p.PersistentPostRun(c, argWoFlags)
+			if err = p.PersistentPostRun(c, argWoFlags); err != nil {
+				return err
+			}
 			break
 		}
 	}
@@ -572,8 +582,8 @@ func (c *Command) initHelp() {
 			Long: `Help provides help for any command in the application.
     Simply type ` + c.Name() + ` help [path to command] for full details.`,
 			Run:               c.HelpFunc(),
-			PersistentPreRun:  func(cmd *Command, args []string) {},
-			PersistentPostRun: func(cmd *Command, args []string) {},
+			PersistentPreRun:  func(cmd *Command, args []string) error { return nil },
+			PersistentPostRun: func(cmd *Command, args []string) error { return nil },
 		}
 	}
 	c.AddCommand(c.helpCommand)
