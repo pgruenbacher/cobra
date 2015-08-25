@@ -442,6 +442,14 @@ func (c *Command) Root() *Command {
 	return findRoot(c)
 }
 
+// ParseError is a new error type for indicating a parsing flag issue, which
+// should usually be responded with a usage response
+type ParseError string
+
+func (p ParseError) Error() string {
+	return string(p)
+}
+
 func (c *Command) execute(a []string) (err error) {
 	if c == nil {
 		return fmt.Errorf("Called Execute() on a nil Command")
@@ -453,7 +461,8 @@ func (c *Command) execute(a []string) (err error) {
 
 	err = c.ParseFlags(a)
 	if err != nil {
-		return err
+		// wrap it
+		return ParseError(err.Error())
 	}
 	// If help is called, regardless of other flags, return we want help
 	// Also say we need help if c.Run is nil.
@@ -479,7 +488,9 @@ func (c *Command) execute(a []string) (err error) {
 		}
 	}
 
-	c.Run(c, argWoFlags)
+	if err = c.Run(c, argWoFlags); err != nil {
+		return err
+	}
 
 	if c.PostRun != nil {
 		if err = c.PostRun(c, argWoFlags); err != nil {
@@ -563,8 +574,10 @@ func (c *Command) Execute() (err error) {
 			cmd.Help()
 			return nil
 		}
-		c.Println(cmd.UsageString())
-		c.Println("Error:", err.Error())
+		switch err.(type) {
+		case ParseError:
+			c.Println(cmd.UsageString())
+		}
 	}
 
 	return
