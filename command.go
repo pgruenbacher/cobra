@@ -576,6 +576,7 @@ func (c *Command) Execute() (err error) {
 		}
 		switch err.(type) {
 		case ParseError:
+			c.Println(err)
 			c.Println(cmd.UsageString())
 		}
 	}
